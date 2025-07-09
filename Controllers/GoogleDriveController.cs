@@ -1,5 +1,7 @@
+using GoogleDriveApp.Models;
 using GoogleDriveApp.Services;
 using Microsoft.AspNetCore.Mvc;
+using File = Google.Apis.Drive.v3.Data.File;
 
 namespace GoogleDriveApp.Controllers
 {
@@ -7,34 +9,6 @@ namespace GoogleDriveApp.Controllers
     [Route("api/google")]
     public class GoogleDriveController : ControllerBase
     {
-
-        //private readonly ILogger<GoogleDriveController> _logger;
-
-        //public GoogleDriveController(ILogger<GoogleDriveController> logger)
-        //{
-        //    _logger = logger;
-        //}
-
-        //[HttpGet("testGet")]
-        //public async Task<IActionResult> Get()
-        //{
-        //    return Ok(new { message = "Ok1" });
-        //}
-
-        //[HttpPost("testPost")]
-        //public async Task<IActionResult> Post()
-        //{
-        //    return BadRequest(new {message = "error"});
-        //}
-
-        //[HttpPut("testPut/{id}")]
-        //[ProducesResponseType(StatusCodes.Status202Accepted)]
-        //[ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        //public async Task<IActionResult> Put(int id = 69)
-        //{
-        //    return Accepted(new { message = $"error {id}" });
-        //}
-
         private readonly GoogleAuthService _authService;
 
         public GoogleDriveController(GoogleAuthService authService)
@@ -45,38 +19,43 @@ namespace GoogleDriveApp.Controllers
         [HttpGet("login")]
         public IActionResult Login()
         {
-            var url = _authService.GetAuthorizationUrl();
-            return Redirect(url);
+            return Redirect(_authService.GetAuthorizationUrl());
         }
 
         [HttpGet("callback")]
-        public async Task<IActionResult> Callback([FromQuery] string code)
+        public async Task<IActionResult> Callback(string code, string? error)
         {
-            var service = await _authService.GetDriveServiceAsync(code);
+            if (!string.IsNullOrEmpty(error))
+                return BadRequest($"Error from Google OAuth: {error}");
 
-            var foldersRequest = service.Files.List();
-            foldersRequest.Q = "mimeType = 'application/vnd.google-apps.folder'";
-            foldersRequest.Fields = "files(id, name)";
+            if (string.IsNullOrEmpty(code))
+                return BadRequest("Missing code from Google OAuth callback");
 
-            var folders = await foldersRequest.ExecuteAsync();
+            var driveService = await _authService.GetDriveServiceAsync(code);
+            var request = driveService.Files.List();
+            request.Q = "mimeType = 'application/vnd.google-apps.folder'"; //"mimeType='application/vnd.google-apps.folder' and 'root' in parents"   $"'{folder.Id}' in parents"
+            var files = await request.ExecuteAsync();
 
-            var result = new List<object>();
-
-            foreach (var folder in folders.Files)
+            var myFiles = new List<DriveFile>();
+            foreach (var file in files.Files)
             {
-                var filesRequest = service.Files.List();
-                filesRequest.Q = $"'{folder.Id}' in parents";
-                filesRequest.Fields = "files(id, name)";
-                var files = await filesRequest.ExecuteAsync();
-
-                result.Add(new
-                {
-                    FolderName = folder.Name,
-                    Files = files.Files.Select(f => new { f.Id, f.Name })
-                });
+                myFiles.Add(new DriveFile(file.Id, file.DriveId, file.MimeType, file.Name, file.CreatedTimeRaw));
             }
+            //    foreach (var folder in folders.Files)
+            //    {
+            //        var filesRequest = service.Files.List();
+            //        filesRequest.Q = $"'{folder.Id}' in parents";
+            //        filesRequest.Fields = "files(id, name)";
+            //        var files = await filesRequest.ExecuteAsync();
 
-            return Ok(result);
+            //        result.Add(new
+            //        {
+            //            FolderName = folder.Name,
+            //            Files = files.Files.Select(f => new { f.Id, f.Name })
+            //        });
+            //    }
+            return Ok(new { Files = myFiles });
+            
         }
     }
 }
