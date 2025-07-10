@@ -4,6 +4,10 @@ using Google.Apis.Auth.OAuth2.Requests;
 using Google.Apis.Auth.OAuth2.Responses;
 using Google.Apis.Drive.v3;
 using Google.Apis.Services;
+using GoogleDriveApp.Models;
+using System.Net;
+using System.Text.Json;
+using static Google.Apis.Requests.BatchRequest;
 
 namespace GoogleDriveApp.Services
 {
@@ -47,7 +51,34 @@ namespace GoogleDriveApp.Services
 
         }
 
-        public async Task<DriveService> GetDriveServiceAsync(string code)
+        public async Task<DriveService> GetDriveServiceAsync(TokenResponse token)
+        {
+            var clientId = _config["Google:ClientId"];
+            var clientSecret = _config["Google:ClientSecret"];
+            var scopes = new[] { DriveService.Scope.Drive };
+
+            var flow = new GoogleAuthorizationCodeFlow(new GoogleAuthorizationCodeFlow.Initializer
+            {
+                ClientSecrets = new ClientSecrets
+                {
+                    ClientId = clientId,
+                    ClientSecret = clientSecret
+                },
+                Scopes = scopes,
+            });
+
+            var credential = new UserCredential(flow, "user", token);
+
+            var driveService = new DriveService(new BaseClientService.Initializer
+            {
+                HttpClientInitializer = credential,
+                ApplicationName = "TestApp"
+            });
+
+            return driveService;
+        }
+
+        public async Task<TokenResponse> GenerateToken(string code)
         {
             var clientId = _config["Google:ClientId"];
             var clientSecret = _config["Google:ClientSecret"];
@@ -70,16 +101,49 @@ namespace GoogleDriveApp.Services
                 code: code,
                 redirectUri: redirectUri,
                 taskCancellationToken: CancellationToken.None);
+            
+            return token;
+        }
 
-            var credential = new UserCredential(flow, "user", token);
+        public async Task<TokenResponse> UpdateToken(TokenResponse token)
+        {
+            var clientId = _config["Google:ClientId"];
+            var clientSecret = _config["Google:ClientSecret"];
+            var scopes = new[] { DriveService.Scope.Drive };
 
-            var driveService = new DriveService(new BaseClientService.Initializer
+            var flow = new GoogleAuthorizationCodeFlow(new GoogleAuthorizationCodeFlow.Initializer
             {
-                HttpClientInitializer = credential,
-                ApplicationName = "TestApp"
+                ClientSecrets = new ClientSecrets
+                {
+                    ClientId = clientId,
+                    ClientSecret = clientSecret
+                },
+                Scopes = scopes,
             });
 
-            return driveService;
+            var userCredential = new UserCredential(flow, "user", token);
+
+            await userCredential.RefreshTokenAsync(CancellationToken.None);
+            return userCredential.Token;
+        }
+
+        public async Task SaveToken(HttpResponse response, TokenResponse token)
+        {
+            var tokenSerialized = JsonSerializer.Serialize(token);
+            response.Cookies.Append("GDriveToken", tokenSerialized, new CookieOptions
+            {
+                HttpOnly = true,
+                SameSite = SameSiteMode.None,
+                Secure = true,
+                MaxAge = DateTime.Now.AddMinutes(5).TimeOfDay
+            });
+        }
+
+        public async Task RemoveToken(HttpResponse response, HttpRequest request)
+        {
+            var tokenStr = request.Cookies["GDriveToken"];
+            var token = JsonSerializer.Deserialize<TokenResponse>(tokenStr);
+            response.Cookies.Delete("GDriveToken");
         }
     }
 }
