@@ -15,17 +15,24 @@ namespace GoogleDriveApp.Services
     {
         private readonly IConfiguration _config;
 
+        private readonly string _clientId;
+        private readonly string _redirectUri;
+        private readonly string _clientSecret;
+        private readonly string[] _scopes;
+
+
+
         public GoogleAuthService(IConfiguration config)
         {
             _config = config;
+            _clientId = _config["Google:ClientId"];
+            _redirectUri = _config["Google:RedirectUri"];
+            _clientSecret = _config["Google:ClientSecret"];
+            _scopes = new[] { DriveService.Scope.Drive };
         }
 
         public string GetAuthorizationUrl()
         {
-            var clientId = _config["Google:ClientId"];
-            var redirectUri = _config["Google:RedirectUri"];
-            var scopes = new[] { DriveService.Scope.Drive };
-
             //var flow = new GoogleAuthorizationCodeFlow(new GoogleAuthorizationCodeFlow.Initializer
             //{
             //    ClientSecrets = new ClientSecrets
@@ -40,9 +47,9 @@ namespace GoogleDriveApp.Services
             var authorizationUrl =
                 new GoogleAuthorizationCodeRequestUrl(new System.Uri("https://accounts.google.com/o/oauth2/v2/auth"))
                 {
-                    ClientId = clientId,
-                    RedirectUri = redirectUri,
-                    Scope = string.Join(" ", scopes),
+                    ClientId = _clientId,
+                    RedirectUri = _redirectUri,
+                    Scope = string.Join(" ", _scopes),
                     ResponseType = "code",
                     AccessType = "offline", // щоб отримати refresh token
                     Prompt = "consent" // завжди питати користувача про дозвіл (щоб refresh token отримати)
@@ -53,18 +60,14 @@ namespace GoogleDriveApp.Services
 
         public async Task<DriveService> GetDriveServiceAsync(TokenResponse token)
         {
-            var clientId = _config["Google:ClientId"];
-            var clientSecret = _config["Google:ClientSecret"];
-            var scopes = new[] { DriveService.Scope.Drive };
-
             var flow = new GoogleAuthorizationCodeFlow(new GoogleAuthorizationCodeFlow.Initializer
             {
                 ClientSecrets = new ClientSecrets
                 {
-                    ClientId = clientId,
-                    ClientSecret = clientSecret
+                    ClientId = _clientId,
+                    ClientSecret = _clientSecret
                 },
-                Scopes = scopes,
+                Scopes = _scopes,
             });
 
             var credential = new UserCredential(flow, "user", token);
@@ -80,26 +83,21 @@ namespace GoogleDriveApp.Services
 
         public async Task<TokenResponse> GenerateToken(string code)
         {
-            var clientId = _config["Google:ClientId"];
-            var clientSecret = _config["Google:ClientSecret"];
-            var redirectUri = _config["Google:RedirectUri"];
-            var scopes = new[] { DriveService.Scope.Drive };
-
             var flow = new GoogleAuthorizationCodeFlow(new GoogleAuthorizationCodeFlow.Initializer
             {
                 ClientSecrets = new ClientSecrets
                 {
-                    ClientId = clientId,
-                    ClientSecret = clientSecret
+                    ClientId = _clientId,
+                    ClientSecret = _clientSecret
                 },
-                Scopes = scopes,
+                Scopes = _scopes,
             });
 
             //Обмін коду на токен
             TokenResponse token = await flow.ExchangeCodeForTokenAsync(
                 userId: "user", // можеш замінити на унікальний ідентифікатор користувача
                 code: code,
-                redirectUri: redirectUri,
+                redirectUri: _redirectUri,
                 taskCancellationToken: CancellationToken.None);
             
             return token;
@@ -107,18 +105,14 @@ namespace GoogleDriveApp.Services
 
         public async Task<TokenResponse> UpdateToken(TokenResponse token)
         {
-            var clientId = _config["Google:ClientId"];
-            var clientSecret = _config["Google:ClientSecret"];
-            var scopes = new[] { DriveService.Scope.Drive };
-
             var flow = new GoogleAuthorizationCodeFlow(new GoogleAuthorizationCodeFlow.Initializer
             {
                 ClientSecrets = new ClientSecrets
                 {
-                    ClientId = clientId,
-                    ClientSecret = clientSecret
+                    ClientId = _clientId,
+                    ClientSecret = _clientSecret
                 },
-                Scopes = scopes,
+                Scopes = _scopes,
             });
 
             var userCredential = new UserCredential(flow, "user", token);

@@ -28,7 +28,9 @@ namespace GoogleDriveApp.Controllers
         {
             return Redirect(_authService.GetAuthorizationUrl());
         }
-
+        
+        [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
         [HttpPost("logout")]
         public IActionResult Logout()
         {
@@ -43,6 +45,8 @@ namespace GoogleDriveApp.Controllers
             }
         }
 
+        [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(TokenResponse), StatusCodes.Status200OK)]
         [HttpGet("callback")]
         public async Task<IActionResult> Callback(string code, string? error)
         {
@@ -59,6 +63,9 @@ namespace GoogleDriveApp.Controllers
             return Ok(token);
         }
 
+        [ProducesResponseType(typeof(UnauthorizedResult), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(List<DriveFile>), StatusCodes.Status200OK)]
         [HttpGet("files")]
         public async Task<IActionResult> GetFiles()
         {
@@ -76,7 +83,7 @@ namespace GoogleDriveApp.Controllers
                 var driveService = await _authService.GetDriveServiceAsync(token);
 
                 var request = driveService.Files.List();
-                request.Q = "mimeType = 'application/vnd.google-apps.folder'"; 
+                request.Q = "mimeType = 'application/vnd.google-apps.folder'";
                 //"mimeType='application/vnd.google-apps.folder' and 'root' in parents"   $"'{folder.Id}' in parents"
                 var files = await request.ExecuteAsync();
 
@@ -100,6 +107,10 @@ namespace GoogleDriveApp.Controllers
                 //    }
                 return Ok(new { Files = myFiles });
             }
+            catch (ArgumentNullException ex)
+            {
+                return Unauthorized();
+            }
             catch (Exception ex)
             {
                 return BadRequest(new { error = ex.Message });
@@ -108,6 +119,9 @@ namespace GoogleDriveApp.Controllers
         }
 
         //https://localhost:8000/api/google/files/search?folderId=1bJbmrHDtHvYVG6rkfxyZHafPpL_If2yK
+        [ProducesResponseType(typeof(UnauthorizedResult), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(List<DriveFile>), StatusCodes.Status200OK)]
         [HttpGet("files/folder/{folderId}")]
         public async Task<IActionResult> GetFolderFiles(string folderId)
         {
@@ -128,7 +142,7 @@ namespace GoogleDriveApp.Controllers
 
                 if (folderInfo.MimeType != "application/vnd.google-apps.folder")
                 {
-                    return BadRequest(new { error = "ID in not a folder" });
+                    return BadRequest(new { error = "ID is not a folder" });
                 }
 
                 var listRequest = driveService.Files.List();
@@ -153,9 +167,13 @@ namespace GoogleDriveApp.Controllers
                     })
                 });
             }
+            catch (ArgumentNullException ex)
+            {
+                return Unauthorized();
+            }
             catch (Exception ex)
             {
-                return StatusCode(500, new { error = ex.Message });
+                return BadRequest(new { error = ex.Message });
             }
         }
     }
