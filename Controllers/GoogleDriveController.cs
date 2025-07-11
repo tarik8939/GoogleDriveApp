@@ -8,6 +8,7 @@ using System.Text.Json;
 using File = Google.Apis.Drive.v3.Data.File;
 using Google.Apis.Auth.OAuth2.Responses;
 using Google.Apis.Services;
+using System.Xml.Linq;
 
 namespace GoogleDriveApp.Controllers
 {
@@ -16,18 +17,30 @@ namespace GoogleDriveApp.Controllers
     public class GoogleDriveController : ControllerBase
     {
         private readonly GoogleAuthService _authService;
-        private readonly IConfiguration _config;
 
-        public GoogleDriveController(GoogleAuthService authService, IConfiguration config)
+        public GoogleDriveController(GoogleAuthService authService)
         {
             _authService = authService;
-            _config = config;
         }
 
         [HttpGet("login")]
         public IActionResult Login()
         {
             return Redirect(_authService.GetAuthorizationUrl());
+        }
+
+        [HttpPost("logout")]
+        public IActionResult Logout()
+        {
+            try
+            {
+                _authService.RemoveToken(Response, Request);
+                return Ok(new { message = "Logout successful" });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
         }
 
         [HttpGet("callback")]
@@ -63,7 +76,8 @@ namespace GoogleDriveApp.Controllers
                 var driveService = await _authService.GetDriveServiceAsync(token);
 
                 var request = driveService.Files.List();
-                request.Q = "mimeType = 'application/vnd.google-apps.folder'"; //"mimeType='application/vnd.google-apps.folder' and 'root' in parents"   $"'{folder.Id}' in parents"
+                request.Q = "mimeType = 'application/vnd.google-apps.folder'"; 
+                //"mimeType='application/vnd.google-apps.folder' and 'root' in parents"   $"'{folder.Id}' in parents"
                 var files = await request.ExecuteAsync();
 
                 var myFiles = new List<DriveFile>();
@@ -93,17 +107,55 @@ namespace GoogleDriveApp.Controllers
 
         }
 
-        [HttpPost("logout")]
-        public IActionResult Logout()
+        //https://localhost:8000/api/google/files/search?folderId=1bJbmrHDtHvYVG6rkfxyZHafPpL_If2yK
+        [HttpGet("files/folder/{folderId}")]
+        public async Task<IActionResult> GetFolderFiles(string folderId)
         {
             try
             {
-                _authService.RemoveToken(Response, Request);
-                return Ok(new { message = "Logout успішний" });
+                var tokenStr = Request.Cookies["GDriveToken"];
+                var token = JsonSerializer.Deserialize<TokenResponse>(tokenStr);
+
+                if (token.IsExpired(Google.Apis.Util.SystemClock.Default))
+                {
+                    token = await _authService.UpdateToken(token);
+                    await _authService.SaveToken(Response, token);
+                }
+
+                var driveService = await _authService.GetDriveServiceAsync(token);
+
+                var folderInfo = await driveService.Files.Get(folderId).ExecuteAsync();
+
+                if (folderInfo.MimeType != "application/vnd.google-apps.folder")
+                {
+                    return BadRequest(new { error = "ID in not a folder" });
+                }
+
+                var listRequest = driveService.Files.List();
+                listRequest.Fields = "nextPageToken, files(id, name, mimeType, size, parents, createdTime, modifiedTime)";
+                //listRequest.Q = $"mimeType = 'application/vnd.google-apps.folder' and name contains '{folderId}' and trashed = false";
+                listRequest.Q = $"'{folderId}' in parents and trashed = false";
+
+                var files = await listRequest.ExecuteAsync();
+
+                return Ok(new
+                {
+                    folderId = folderId,
+                    folderName = folderInfo.Name,
+                    files = files.Files.Select(f => new {
+                        id = f.Id,
+                        name = f.Name,
+                        mimeType = f.MimeType,
+                        size = f.Size,
+                        isFolder = f.MimeType == "application/vnd.google-apps.folder",
+                        createdTime = f.CreatedTime,
+                        modifiedTime = f.ModifiedTime
+                    })
+                });
             }
             catch (Exception ex)
             {
-                return BadRequest(new { error = ex.Message });
+                return StatusCode(500, new { error = ex.Message });
             }
         }
     }
